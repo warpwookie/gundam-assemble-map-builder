@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Build Gundam Assemble hex maps: paint elevation, ground type and map features, then export a PDF.">
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Gundam Assemble Map Builder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: tool rail on the left (stacks on top at phone width), the hex board fills the rest. Hangar-console palette, cobalt accent. */
+:root{
+  --bg:#eef0f3; --panel:#ffffff; --fg:#1b2130; --muted:#5d6577; --line:#cfd4dd;
+  --accent:#2f56c9; --accent-fg:#ffffff; --hex:#f8f9fb; --hex-stroke:#3a4152; --sel:#2f56c9;
+  --font-display:"Chakra Petch",ui-sans-serif,system-ui,sans-serif;
+  --font-body:"IBM Plex Sans",ui-sans-serif,system-ui,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#141824; --panel:#1c2232; --fg:#e6e9f0; --muted:#9aa3b6; --line:#2e3648;
+  --accent:#6f8fff; --accent-fg:#0d1120; --hex:#232a3c; --hex-stroke:#8a93a8; --sel:#8fa8ff; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141824; --panel:#1c2232; --fg:#e6e9f0; --muted:#9aa3b6; --line:#2e3648;
+  --accent:#6f8fff; --accent-fg:#0d1120; --hex:#232a3c; --hex-stroke:#8a93a8; --sel:#8fa8ff; color-scheme:dark}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:14px;padding-inline:16px;padding-block:14px;box-sizing:border-box}
+*{box-sizing:border-box}
+.app{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;max-width:1500px;margin:0 auto;min-height:calc(100% - 4px)}
+@media (max-width:860px){.app{grid-template-columns:minmax(0,1fr)}}
+header.top{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px}
+h1{font-family:var(--font-display);font-weight:700;font-size:22px;letter-spacing:.02em;margin:0;text-wrap:balance}
+.sub{color:var(--muted);font-size:13px}
+.rail{display:flex;flex-direction:column;gap:12px;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.card h2{font-family:var(--font-display);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin:0}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);flex:1;min-width:70px}
+input[type=text],input[type=number],select,textarea{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%}
+textarea{font-family:var(--font-mono);font-size:12px;resize:vertical;min-height:90px}
+button{font:inherit;font-weight:500;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:6px;padding:6px 10px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+button:focus-visible,input:focus-visible,select:focus-visible,.chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.5;cursor:default}
+.chips{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:6px}
+.chip{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:6px;padding:5px 7px;background:var(--bg);cursor:pointer;font-size:12px;line-height:1.2;color:var(--fg);text-align:left}
+.chip[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset;font-weight:600}
+.sw{width:14px;height:14px;border-radius:3px;flex:none;border:1px solid rgba(0,0,0,.35)}
+.sw.none{background:repeating-linear-gradient(45deg,transparent 0 3px,var(--line) 3px 5px)}
+.tools{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.check{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg)}
+.board{background:var(--panel);border:1px solid var(--line);border-radius:8px;display:flex;flex-direction:column;min-width:0;min-height:420px}
+.boardbar{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+.readout{font-family:var(--font-mono);color:var(--fg);min-width:200px}
+.stage{flex:1;overflow:auto;padding:12px;touch-action:none}
+svg#map{display:block;width:100%;height:auto;max-height:calc(100vh - 150px);user-select:none;-webkit-user-select:none}
+.hex-out{stroke:var(--hex-stroke);stroke-width:1}
+.hex-lab{font-family:var(--font-mono);font-weight:500;pointer-events:none;dominant-baseline:central;text-anchor:middle}
+.hex-tag{font-family:var(--font-mono);pointer-events:none;text-anchor:middle;dominant-baseline:central}
+.badge-t{font-family:var(--font-body);font-weight:700;pointer-events:none;text-anchor:middle;dominant-baseline:central}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;padding:10px 12px;border-top:1px solid var(--line);font-size:12px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.fills{display:flex;flex-direction:column;gap:6px}
+.fills button{text-align:left}
+.sw.space{background:radial-gradient(circle at 25% 30%,#fff 0 .8px,transparent 1.2px),radial-gradient(circle at 70% 60%,#fff 0 .7px,transparent 1.1px),radial-gradient(circle at 45% 80%,#fff 0 .6px,transparent 1px),#05060c}
+.note{font-size:12px;color:var(--muted);margin:0;line-height:1.45}
+.msg{font-size:12px;min-height:1.2em;color:var(--muted)}
+kbd{font-family:var(--font-mono);font-size:11px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--bg)}
+.stats{font-family:var(--font-mono);font-size:12px;font-variant-numeric:tabular-nums;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <h1>Gundam Assemble Map Builder</h1>
+    <span class="sub">Paint elevation and ground onto any hex field, then export a PDF.</span>
+  </header>
+
+  <aside class="rail">
+    <section class="card" aria-labelledby="h-field">
+      <h2 id="h-field">Field</h2>
+      <label class="f">Map name<input id="mapName" type="text" maxlength="60"></label>
+      <div class="row">
+        <label class="f">Rows (max 26)<input id="rows" type="number" min="1" max="26"></label>
+        <label class="f">Columns (max 26)<input id="cols" type="number" min="1" max="26"></label>
+      </div>
+      <label class="check"><input id="shortRows" type="checkbox"> Inset rows are one hex shorter</label>
+      <div class="row"><button id="applySize" class="primary">Apply size</button><button id="clearAll">Clear map</button></div>
+      <p class="note">Resizing keeps terrain on any hex label that still exists.</p>
+    </section>
+
+    <section class="card" aria-labelledby="h-brush">
+      <h2 id="h-brush">Brush</h2>
+      <div class="tools" role="group" aria-label="Tool">
+        <button class="chip" data-tool="paint" aria-pressed="true">Paint <kbd>P</kbd></button>
+        <button class="chip" data-tool="erase" aria-pressed="false">Erase <kbd>X</kbd></button>
+        <button class="chip" data-tool="pick" aria-pressed="false">Copy <kbd>C</kbd></button>
+      </div>
+      <label class="check"><input id="useElev" type="checkbox" checked> Elevation (outer band)</label>
+      <div class="chips" id="elevChips" role="group" aria-label="Elevation"></div>
+      <label class="check"><input id="useGround" type="checkbox" checked> Ground type (inner fill)</label>
+      <div class="chips" id="groundChips" role="group" aria-label="Ground type"></div>
+      <label class="check"><input id="useFeat" type="checkbox"> Map feature (badge)</label>
+      <div class="chips" id="featChips" role="group" aria-label="Map feature"></div>
+      <div class="row"><button id="undo" disabled>Undo <kbd>Ctrl Z</kbd></button></div>
+      <div class="fills"><button data-fill="basic">Fill open hexes with Basic ground</button><button data-fill="space">Fill open hexes with Space</button></div>
+      <p class="note">Click or drag across hexes to paint. Keys <kbd>0</kbd>–<kbd>4</kbd> set elevation. Only ticked layers are painted or erased. Choosing a feature switches the brush to features only; choosing an elevation or ground type switches features off.</p>
+    </section>
+
+    <section class="card" aria-labelledby="h-view">
+      <h2 id="h-view">Labels</h2>
+      <label class="check"><input id="vLabels" type="checkbox"> Hex labels (AA, AB…)</label>
+      <label class="check"><input id="vTags" type="checkbox"> Elevation tags (E1, E2…)</label>
+      <label class="check"><input id="vBadges" type="checkbox"> Feature letters on badges</label>
+      <label class="check"><input id="vLegend" type="checkbox"> Legend</label>
+      <p class="note">These settings apply to the screen and the PDF.</p>
+    </section>
+
+    <section class="card" aria-labelledby="h-out">
+      <h2 id="h-out">Export</h2>
+      <div class="row">
+        <label class="f">Page<select id="page">
+          <option value="letter">Letter</option><option value="a4">A4</option>
+          <option value="tabloid">Tabloid 11×17</option><option value="a3">A3</option></select></label>
+        <label class="f">Color<select id="ink"><option value="color">Full color</option><option value="light">Ink saver</option></select></label>
+      </div>
+      <label class="check"><input id="pdfList" type="checkbox"> Include the map list as page 2 of the PDF</label>
+      <div class="row"><button id="pdf" class="primary">Download PDF</button><button id="json">Save map file</button>
+        <label class="f" style="flex:none;min-width:0"><button id="loadBtn" type="button">Open map file</button><input id="loadFile" type="file" accept=".json,application/json" hidden></label></div>
+      <div class="msg" id="msg" role="status"></div>
+    </section>
+
+    <section class="card" aria-labelledby="h-list">
+      <h2 id="h-list">Map list</h2>
+      <textarea id="list" readonly aria-label="Map list"></textarea>
+      <div class="row"><button id="copy">Copy list</button></div>
+    </section>
+  </aside>
+
+  <main class="board">
+    <div class="boardbar">
+      <span class="readout" id="readout">Hover a hex</span>
+      <span class="stats" id="stats"></span>
+    </div>
+    <div class="stage" id="stage"><svg id="map" role="img" aria-label="Hex map"></svg></div>
+    <div class="legend" id="legend"></div>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+(function(){
+const L="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const ELEV=[
+  {v:0,name:"Ground level",short:"E0",color:null},
+  {v:1,name:"Elevation 1",short:"E1",color:"#f2c14e"},
+  {v:2,name:"Elevation 2",short:"E2",color:"#f08a24"},
+  {v:3,name:"Elevation 3",short:"E3",color:"#d9472b"},
+  {v:4,name:"Elevation 4",short:"E4",color:"#8e3b8f"}];
+const GROUND=[
+  {k:"plain",name:"Open",color:null},
+  {k:"basic",name:"Basic ground",color:"#8b5a2b"},
+  {k:"water",name:"Water",color:"#3a7bd5"},
+  {k:"debris",name:"Debris field",color:"#7d7f86"},
+  {k:"minovsky",name:"Minovsky Particles",color:"#c86bd6"},
+  {k:"impass",name:"Impassable",color:"#2b2b2b"},
+  {k:"space",name:"Space",color:"#05060c",stars:true}];
+// star positions inside the inner hex: [angle deg, distance as share of inner radius, size]
+const STARS=[[48,.82,1],[78,.62,.7],[112,.86,.85],[138,.7,.6],[228,.8,1],[262,.64,.7],[294,.86,.85],[322,.68,.6]];
+function starPts(lab,cx,cy,ri){let h=0;for(const ch of lab)h=(h*31+ch.charCodeAt(0))%17;h-=8;
+  return STARS.map(([a,d,z])=>{const t=(a+h)*Math.PI/180;return[cx+Math.cos(t)*d*ri*0.86,cy+Math.sin(t)*d*ri*0.86,z]})}
+const G=Object.fromEntries(GROUND.map(g=>[g.k,g]));
+const PA="#2f6fd6", PB="#d23b3b", NEU="#3b3f4a";
+const FEATS=[
+  {k:"",name:"None",code:"",color:null},
+  {k:"baseA",chip:"Base A",name:"Base (Player A)",code:"B",color:PA},
+  {k:"baseB",chip:"Base B",name:"Base (Player B)",code:"B",color:PB},
+  {k:"garA",chip:"Garrison A",name:"Garrison (Player A)",code:"G",color:PA},
+  {k:"garB",chip:"Garrison B",name:"Garrison (Player B)",code:"G",color:PB},
+  {k:"carA",chip:"Carrier A",name:"Carrier start (Player A)",code:"C",color:PA},
+  {k:"carB",chip:"Carrier B",name:"Carrier start (Player B)",code:"C",color:PB},
+  {k:"obj1",chip:"Objective 1",name:"Objective 1",code:"O1",color:NEU},
+  {k:"obj2",chip:"Objective 2",name:"Objective 2",code:"O2",color:NEU},
+  {k:"obj3",chip:"Objective 3",name:"Objective 3",code:"O3",color:NEU},
+  {k:"obj4",chip:"Objective 4",name:"Objective 4",code:"O4",color:NEU},
+  {k:"energy",name:"Energy",code:"En",color:"#1f9d6a"},
+  {k:"upShield",chip:"Shield",name:"Shield Upgrade",code:"Sh",color:"#b8860b"},
+  {k:"upSpeed",chip:"Speed",name:"Speed Upgrade",code:"Sp",color:"#b8860b"},
+  {k:"upStr",chip:"Strength",name:"Strength Upgrade",code:"St",color:"#b8860b"},
+  {k:"token",chip:"Scenario token",name:"Scenario token",code:"T",color:"#6b5b95"}];
+const F=Object.fromEntries(FEATS.map(f=>[f.k,f]));
+const INNER=0.6, SQ3=Math.sqrt(3);
+
+// Example map: the 15x14 field with the plateau around HG.
+const EXAMPLE={name:"Plateau Crossing (example)",rows:15,cols:14,shortRows:true,cells:{
+  HA:{e:1,g:"basic"},HM:{e:1,g:"basic"},HF:{e:2,g:"basic"},HG:{e:2,g:"basic",f:"obj1"},HH:{e:2,g:"basic"},
+  GG:{e:2,g:"basic"},GH:{e:2,g:"basic"},IG:{e:2,g:"basic"},IH:{e:2,g:"basic"},
+  AG:{e:0,g:"plain",f:"baseA"},OH:{e:0,g:"plain",f:"baseB"},DK:{e:0,g:"plain",f:"garA"},LC:{e:0,g:"plain",f:"garB"}}};
+
+let S=load()||JSON.parse(JSON.stringify(EXAMPLE));
+let brush={tool:"paint",e:2,g:"basic",f:"obj1",useE:true,useG:true,useF:false};
+let undoStack=[];
+const $=id=>document.getElementById(id);
+
+function load(){try{const t=localStorage.getItem("ga-hexmap");if(!t)return null;const o=JSON.parse(t);return valid(o)?o:null}catch(e){return null}}
+function persist(){try{localStorage.setItem("ga-hexmap",JSON.stringify(S))}catch(e){}}
+function valid(o){return o&&Number.isInteger(o.rows)&&Number.isInteger(o.cols)&&o.rows>=1&&o.rows<=26&&o.cols>=1&&o.cols<=26&&typeof o.cells==="object"}
+
+function rowLen(i){return (S.shortRows&&i%2===1)?S.cols-1:S.cols}
+function hexes(){const out=[];for(let i=0;i<S.rows;i++){const n=rowLen(i);for(let j=0;j<n;j++)out.push({i,j,lab:L[i]+L[j]})}return out}
+function geom(w){const h=2*w/SQ3;return{w,h,r:h/2,W:S.cols*w,H:h+0.75*h*(S.rows-1)}}
+function center(i,j,g){return{x:g.w/2+j*g.w+(i%2===1?g.w/2:0),y:g.r+i*0.75*g.h}}
+function pts(cx,cy,r){const a=[];for(let k=0;k<6;k++){const t=Math.PI/180*(90+60*k);a.push([cx+r*Math.cos(t),cy+r*Math.sin(t)])}return a}
+function cell(lab){const c=S.cells[lab]||{};const f=c.f==="obj"?"obj1":(c.f||"");return{e:c.e||0,g:c.g||"plain",f:F[f]?f:""}}
+function V(){S.view=Object.assign({labels:true,tags:true,badges:true,legend:true,pdfList:false},S.view||{});return S.view}
+function isEmpty(d){return !d.e&&d.g==="plain"&&!d.f}
+function lum(hex){const n=parseInt(hex.slice(1),16),r=(n>>16)&255,g=(n>>8)&255,b=n&255;return(0.299*r+0.587*g+0.114*b)/255}
+
+// ---------- render ----------
+const svg=$("map");
+function render(){
+  const g=geom(40), pad=4;
+  svg.setAttribute("viewBox",`${-pad} ${-pad} ${g.W+pad*2} ${g.H+pad*2}`);
+  const fs=Math.max(7,g.w*0.27);
+  let s="";
+  for(const hx of hexes()){
+    const c=center(hx.i,hx.j,g), d=cell(hx.lab), ev=ELEV[d.e], gr=G[d.g]||G.plain;
+    const outer=pts(c.x,c.y,g.r).map(p=>p.join(",")).join(" ");
+    const inner=pts(c.x,c.y,g.r*INNER).map(p=>p.join(",")).join(" ");
+    s+=`<g data-lab="${hx.lab}">`;
+    s+=`<polygon class="hex-out" data-lab="${hx.lab}" points="${outer}" style="fill:${ev.color||"var(--hex)"}"/>`;
+    if(gr.color) s+=`<polygon points="${inner}" fill="${gr.color}" stroke="rgba(0,0,0,.35)" stroke-width=".6" pointer-events="none"/>`;
+    if(gr.stars) for(const [sx,sy,z] of starPts(hx.lab,c.x,c.y,g.r*INNER)) s+=`<circle cx="${sx}" cy="${sy}" r="${0.75*z}" fill="#ffffff" pointer-events="none"/>`;
+    const base=gr.color||ev.color;
+    const tc=base?(lum(base)>0.55?"#1b2130":"#ffffff"):"var(--fg)";
+    const ly=labelY(d,fs);
+    if(V().labels) s+=`<text class="hex-lab" x="${c.x}" y="${c.y+ly.lab}" font-size="${fs}" fill="${tc}">${hx.lab}</text>`;
+    if(d.e&&V().tags) s+=`<text class="hex-tag" x="${c.x}" y="${c.y+ly.tag}" font-size="${fs*0.62}" fill="${tc}">${ev.short}</text>`;
+    if(d.f&&F[d.f]){const ft=F[d.f],br=g.r*0.34,by=c.y-g.r*0.56;
+      s+=`<circle cx="${c.x}" cy="${by}" r="${br}" fill="${ft.color}" stroke="#ffffff" stroke-width="1.2" pointer-events="none"/>`;
+      if(V().badges) s+=`<text class="badge-t" x="${c.x}" y="${by}" font-size="${br*(ft.code.length>1?0.95:1.25)}" fill="#ffffff">${ft.code}</text>`}
+    s+=`</g>`;
+  }
+  svg.innerHTML=s;
+  renderMeta();
+}
+function labelY(d,fs){
+  // label sits lower when a badge occupies the top of the hex; tag centres when labels are hidden
+  const v=V(), off=d.f?fs*0.22:0, both=v.labels&&v.tags&&d.e;
+  return both?{lab:off-fs*0.18,tag:off+fs*0.72}:{lab:off,tag:off};
+}
+function renderMeta(){
+  const all=hexes(), counts={};
+  let n=0;
+  let nf=0;
+  for(const hx of all){const d=cell(hx.lab);if(d.e||d.g!=="plain")n++;if(d.f)nf++}
+  $("stats").textContent=`${S.rows} × ${S.cols} · ${all.length} hexes · ${n} with terrain · ${nf} features`;
+  $("list").value=listText();
+  const usedE=new Set(),usedG=new Set(),usedF=new Set();
+  for(const hx of all){const d=cell(hx.lab);if(d.e)usedE.add(d.e);if(d.g!=="plain")usedG.add(d.g);if(d.f)usedF.add(d.f)}
+  let lg=`<span><i class="sw" style="background:var(--hex)"></i>Ground level, open</span>`;
+  for(const e of ELEV)if(usedE.has(e.v))lg+=`<span><i class="sw" style="background:${e.color}"></i>${e.name} (band)</span>`;
+  for(const gg of GROUND)if(usedG.has(gg.k))lg+=`<span><i class="sw" style="background:${gg.color}"></i>${gg.name} (center)</span>`;
+  for(const ft of FEATS)if(ft.k&&usedF.has(ft.k))lg+=`<span><i class="sw" style="background:${ft.color};border-radius:50%"></i>${ft.code} ${ft.name}</span>`;
+  $("legend").innerHTML=lg;$("legend").hidden=!V().legend;
+}
+function key(d){return `${ELEV[d.e].short} ${G[d.g].name}`}
+function fullKey(d){return key(d)+(d.f?` + ${F[d.f].name}`:"")}
+function listText(){
+  const groups=new Map(), feats=new Map();
+  for(const hx of hexes()){const d=cell(hx.lab);
+    if(d.e||d.g!=="plain"){const k=key(d);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(hx.lab)}
+    if(d.f){if(!feats.has(d.f))feats.set(d.f,[]);feats.get(d.f).push(hx.lab)}}
+  const out=[];
+  out.push("TERRAIN");
+  if(groups.size)out.push(...[...groups.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([k,v])=>`${k}: ${v.join(", ")}`));
+  else out.push("None placed.");
+  out.push("","FEATURES");
+  if(feats.size)out.push(...FEATS.filter(f=>feats.has(f.k)).map(f=>`${f.name}: ${feats.get(f.k).join(", ")}`));
+  else out.push("None placed.");
+  return out.join("\n");
+}
+
+// ---------- controls ----------
+function buildChips(){
+  $("elevChips").innerHTML=ELEV.map(e=>`<button class="chip" data-e="${e.v}" aria-pressed="${brush.e===e.v}"><i class="sw ${e.color?"":"none"}" style="${e.color?"background:"+e.color:""}"></i>${e.v===0?"E0 Ground":e.short}</button>`).join("");
+  $("groundChips").innerHTML=GROUND.map(g=>`<button class="chip" data-g="${g.k}" aria-pressed="${brush.g===g.k}"><i class="sw ${g.stars?"space":g.color?"":"none"}" style="${g.color&&!g.stars?"background:"+g.color:""}"></i>${g.name}</button>`).join("");
+  $("featChips").innerHTML=FEATS.map(f=>`<button class="chip" data-f="${f.k}" aria-pressed="${brush.f===f.k}"><i class="sw ${f.color?"":"none"}" style="${f.color?"background:"+f.color+";border-radius:50%":""}"></i>${f.chip||f.name}</button>`).join("");
+}
+function setLayers(e,g,f){brush.useE=e;brush.useG=g;brush.useF=f;$("useElev").checked=e;$("useGround").checked=g;$("useFeat").checked=f}
+function setTool(t){brush.tool=t;document.querySelectorAll("[data-tool]").forEach(b=>b.setAttribute("aria-pressed",b.dataset.tool===t))}
+$("elevChips").addEventListener("click",e=>{const b=e.target.closest("[data-e]");if(!b)return;brush.e=+b.dataset.e;$("useElev").checked=brush.useE=true;$("useFeat").checked=brush.useF=false;setTool("paint");buildChips()});
+$("groundChips").addEventListener("click",e=>{const b=e.target.closest("[data-g]");if(!b)return;brush.g=b.dataset.g;$("useGround").checked=brush.useG=true;$("useFeat").checked=brush.useF=false;setTool("paint");buildChips()});
+$("featChips").addEventListener("click",e=>{const b=e.target.closest("[data-f]");if(!b)return;brush.f=b.dataset.f;setLayers(false,false,true);setTool("paint");buildChips()});
+document.querySelectorAll("[data-tool]").forEach(b=>b.addEventListener("click",()=>setTool(b.dataset.tool)));
+$("useElev").addEventListener("change",e=>brush.useE=e.target.checked);
+$("useGround").addEventListener("change",e=>brush.useG=e.target.checked);
+$("useFeat").addEventListener("change",e=>brush.useF=e.target.checked);
+
+function syncFieldInputs(){$("mapName").value=S.name||"";$("rows").value=S.rows;$("cols").value=S.cols;$("shortRows").checked=!!S.shortRows;
+  const v=V();$("vLabels").checked=v.labels;$("vTags").checked=v.tags;$("vBadges").checked=v.badges;$("vLegend").checked=v.legend;$("pdfList").checked=v.pdfList}
+$("pdfList").addEventListener("change",e=>{V().pdfList=e.target.checked;persist()});
+[["vLabels","labels"],["vTags","tags"],["vBadges","badges"],["vLegend","legend"]].forEach(([id,k])=>$(id).addEventListener("change",e=>{V()[k]=e.target.checked;persist();render()}));
+$("mapName").addEventListener("input",e=>{S.name=e.target.value;persist()});
+$("applySize").addEventListener("click",()=>{
+  const r=Math.min(26,Math.max(1,parseInt($("rows").value)||1)), c=Math.min(26,Math.max(1,parseInt($("cols").value)||1));
+  snapshot();S.rows=r;S.cols=c;S.shortRows=$("shortRows").checked;
+  const ok=new Set(hexes().map(h=>h.lab));
+  for(const k of Object.keys(S.cells))if(!ok.has(k))delete S.cells[k];
+  syncFieldInputs();persist();render();say(`Field set to ${r} rows × ${c} columns.`);
+});
+$("clearAll").addEventListener("click",()=>{snapshot();S.cells={};persist();render();say("Map cleared. Undo brings it back.")});
+
+function snapshot(){undoStack.push(JSON.stringify(S));if(undoStack.length>60)undoStack.shift();$("undo").disabled=false}
+function undo(){if(!undoStack.length)return;S=JSON.parse(undoStack.pop());syncFieldInputs();persist();render();$("undo").disabled=!undoStack.length}
+$("undo").addEventListener("click",undo);
+document.querySelectorAll("[data-fill]").forEach(b=>b.addEventListener("click",()=>fillOpen(b.dataset.fill)));
+function fillOpen(gk){ let n=0;
+  const todo=hexes().filter(hx=>cell(hx.lab).g==="plain");
+  if(!todo.length){say("Every hex already has a ground type.");return}
+  snapshot();
+  for(const hx of todo){const d=cell(hx.lab);const o={e:d.e,g:gk};if(d.f)o.f=d.f;S.cells[hx.lab]=o;n++}
+  persist();render();say(`Filled ${n} open hexes with ${G[gk].name}. Elevation and features were kept. Undo reverses it.`);
+}
+
+// ---------- painting ----------
+let painting=false, touched=null;
+function labAt(x,y){const el=document.elementFromPoint(x,y);const g=el&&el.closest&&el.closest("[data-lab]");return g?g.dataset.lab:null}
+function apply(lab){
+  if(!lab)return;
+  if(brush.tool==="pick"){const d=cell(lab);brush.e=d.e;brush.g=d.g;brush.f=d.f;setLayers(true,true,true);setTool("paint");buildChips();say(`Copied ${fullKey(d)} from ${lab}. Brush is ready to paint it.`);painting=false;return}
+  if(touched.has(lab))return;touched.add(lab);
+  const d={...cell(lab)};
+  if(brush.tool==="erase"){if(brush.useE)d.e=0;if(brush.useG)d.g="plain";if(brush.useF)d.f=""}
+  else{if(brush.useE)d.e=brush.e;if(brush.useG)d.g=brush.g;if(brush.useF)d.f=brush.f}
+  if(isEmpty(d))delete S.cells[lab];else{const o={e:d.e,g:d.g};if(d.f)o.f=d.f;S.cells[lab]=o}
+  render();
+}
+svg.addEventListener("pointerdown",e=>{
+  const lab=labAt(e.clientX,e.clientY);if(!lab)return;
+  e.preventDefault();painting=true;touched=new Set();
+  if(brush.tool!=="pick")snapshot();
+  apply(lab);
+});
+window.addEventListener("pointermove",e=>{
+  const lab=labAt(e.clientX,e.clientY);
+  if(lab){const d=cell(lab);$("readout").textContent=`${lab} · ${ELEV[d.e].name} · ${G[d.g].name}${d.f?" · "+F[d.f].name:""}`}
+  if(painting)apply(lab);
+});
+window.addEventListener("pointerup",()=>{if(painting){painting=false;persist()}});
+svg.addEventListener("contextmenu",e=>e.preventDefault());
+
+document.addEventListener("keydown",e=>{
+  if(e.target.matches("input,textarea,select"))return;
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="z"){e.preventDefault();undo();return}
+  if(/^[0-4]$/.test(e.key)){brush.e=+e.key;setTool("paint");buildChips();return}
+  if(e.ctrlKey||e.metaKey||e.altKey)return;
+  const k=e.key.toLowerCase();
+  if(k==="p")setTool("paint");else if(k==="x")setTool("erase");else if(k==="c")setTool("pick");
+});
+
+// ---------- export ----------
+function say(t){$("msg").textContent=t}
+// Inside Claude the page saves through the downloads capability; anywhere else (GitHub Pages, a local file) it uses a normal browser download.
+let downloads=null;
+(async()=>{try{downloads=window.claude?await window.claude.use("downloads"):null}catch(e){downloads=null}})();
+function browserDownload(filename,data){
+  const blob=data instanceof Blob?data:new Blob([data],{type:filename.endsWith(".json")?"application/json":"application/octet-stream"});
+  const url=URL.createObjectURL(blob),a=document.createElement("a");
+  a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),4000);
+}
+async function offer(filename,data){
+  if(!downloads){try{browserDownload(filename,data);say(`Downloaded ${filename}.`)}catch(e){say("Your browser blocked the download.")}return}
+  try{await downloads.save({filename,data});say(`Saved ${filename}.`)}
+  catch(err){say(err&&err.code==="declined"?"Download cancelled.":`Couldn't save the file (${err&&err.code||"error"}).`)}
+}
+function fileBase(){return (S.name||"hex-map").trim().replace(/[^\w\- ]+/g,"").replace(/\s+/g,"-").toLowerCase()||"hex-map"}
+$("json").addEventListener("click",()=>offer(fileBase()+".json",JSON.stringify(S,null,2)));
+$("loadBtn").addEventListener("click",()=>$("loadFile").click());
+$("loadFile").addEventListener("change",async e=>{
+  const f=e.target.files[0];if(!f)return;
+  try{const o=JSON.parse(await f.text());if(!valid(o))throw 0;snapshot();S={name:o.name||"",rows:o.rows,cols:o.cols,shortRows:o.shortRows!==false,cells:o.cells,view:o.view};syncFieldInputs();persist();render();say(`Opened ${f.name}.`)}
+  catch(_){say("That file isn't a map saved from this builder.")}
+  e.target.value="";
+});
+$("copy").addEventListener("click",async()=>{
+  try{await navigator.clipboard.writeText($("list").value);say("Terrain list copied.")}
+  catch(e){$("list").select();say("Press Ctrl+C (Cmd+C) to copy the selected list.")}
+});
+
+const PAGES={letter:[612,792],a4:[595.28,841.89],tabloid:[792,1224],a3:[841.89,1190.55]};
+function rgb(hex){const n=parseInt(hex.slice(1),16);return[(n>>16)&255,(n>>8)&255,n&255]}
+function soften(c,ink){if(ink!=="light")return c;return c.map(v=>Math.round(v+(255-v)*0.55))}
+function poly(doc,p,style){const d=[];for(let k=1;k<p.length;k++)d.push([p[k][0]-p[k-1][0],p[k][1]-p[k-1][1]]);doc.lines(d,p[0][0],p[0][1],[1,1],style,true)}
+$("pdf").addEventListener("click",async()=>{
+  if(!window.jspdf){say("The PDF library didn't load. Reload the page and try again.");return}
+  const ink=$("ink").value, [pw,ph]=PAGES[$("page").value];
+  const g0=geom(1), landscape=g0.W>g0.H;
+  const W=landscape?ph:pw, H=landscape?pw:ph;
+  const doc=new window.jspdf.jsPDF({orientation:landscape?"landscape":"portrait",unit:"pt",format:[pw,ph]});
+  const m=30, top=46, bot=46;
+  const w=Math.min((W-2*m)/g0.W,(H-top-bot-m)/g0.H), g=geom(w);
+  const ox=(W-g.W)/2, oy=top+((H-top-bot-m)-g.H)/2+m/2;
+  doc.setFont("helvetica","bold");doc.setFontSize(15);doc.setTextColor(27,33,48);
+  doc.text(S.name||"Hex map",W/2,m+4,{align:"center"});
+  doc.setFont("helvetica","normal");doc.setFontSize(8);doc.setTextColor(93,101,119);
+  doc.text(`${S.rows} rows (A-${L[S.rows-1]}) x ${S.cols} columns (A-${L[S.cols-1]})  |  label = row letter + column letter  |  band = elevation, center = ground, badge = feature`,W/2,m+17,{align:"center"});
+  const fs=Math.max(4,Math.min(11,w*0.27));
+  for(const hx of hexes()){
+    const c0=center(hx.i,hx.j,g), cx=ox+c0.x, cy=oy+c0.y, d=cell(hx.lab), ev=ELEV[d.e], gr=G[d.g]||G.plain;
+    doc.setDrawColor(40,46,60);doc.setLineWidth(d.e?1.1:0.5);
+    if(ev.color){doc.setFillColor(...soften(rgb(ev.color),ink));poly(doc,pts(cx,cy,g.r),"FD")}else poly(doc,pts(cx,cy,g.r),"S");
+    if(gr.color){doc.setFillColor(...soften(rgb(gr.color),ink));doc.setLineWidth(0.3);poly(doc,pts(cx,cy,g.r*INNER),"FD")}
+    if(gr.stars){doc.setFillColor(255,255,255);for(const [sx,sy,z] of starPts(hx.lab,cx,cy,g.r*INNER))doc.circle(sx,sy,Math.max(0.25,g.r*0.022*z),"F")}
+    const base=gr.color||ev.color;let tc=[27,33,48];
+    if(base){const b=soften(rgb(base),ink);if((0.299*b[0]+0.587*b[1]+0.114*b[2])/255<=0.55)tc=[255,255,255]}
+    doc.setTextColor(...tc);doc.setFont("helvetica",d.e||gr.color?"bold":"normal");doc.setFontSize(fs);
+    const ly=labelY(d,fs);
+    if(V().labels)doc.text(hx.lab,cx,cy+ly.lab,{align:"center",baseline:"middle"});
+    if(d.e&&V().tags){doc.setFont("helvetica","normal");doc.setFontSize(fs*0.65);doc.text(ev.short,cx,cy+ly.tag,{align:"center",baseline:"middle"})}
+    if(d.f&&F[d.f]){const ft=F[d.f],br=g.r*0.34,by=cy-g.r*0.56;
+      doc.setFillColor(...soften(rgb(ft.color),ink));doc.setDrawColor(255,255,255);doc.setLineWidth(0.8);doc.circle(cx,by,br,"FD");
+      doc.setTextColor(255,255,255);doc.setFont("helvetica","bold");doc.setFontSize(br*(ft.code.length>1?0.95:1.25));
+      if(V().badges)doc.text(ft.code,cx,by,{align:"center",baseline:"middle"})}
+  }
+  // legend
+  const items=[{c:null,t:"Ground level, open"}];
+  const usedE=new Set(),usedG=new Set(),usedF=new Set();
+  for(const hx of hexes()){const d=cell(hx.lab);if(d.e)usedE.add(d.e);if(d.g!=="plain")usedG.add(d.g);if(d.f)usedF.add(d.f)}
+  ELEV.forEach(e=>{if(usedE.has(e.v))items.push({c:e.color,t:`${e.name} (band)`})});
+  GROUND.forEach(x=>{if(usedG.has(x.k))items.push({c:x.color,t:`${x.name} (center)`})});
+  FEATS.forEach(x=>{if(x.k&&usedF.has(x.k))items.push({c:x.color,t:`${x.code} ${x.name}`,round:true})});
+  let lx=m, ly=H-m+4; doc.setFontSize(8);doc.setFont("helvetica","normal");
+  const legendItems=V().legend?items:[];
+  {let x=m,rowsN=1;for(const it of legendItems){const tw=doc.getTextWidth(it.t)+26;if(x+tw>W-m){x=m;rowsN++}x+=tw}ly-=(rowsN-1)*14}
+  for(const it of legendItems){
+    const tw=doc.getTextWidth(it.t)+26;if(lx+tw>W-m){lx=m;ly+=14}
+    doc.setDrawColor(40,46,60);doc.setLineWidth(0.5);
+    if(it.round){doc.setFillColor(...soften(rgb(it.c),ink));doc.circle(lx+6,ly-3,5,"FD")}
+    else if(it.c){doc.setFillColor(...soften(rgb(it.c),ink));poly(doc,pts(lx+6,ly-3,6),"FD")}else poly(doc,pts(lx+6,ly-3,6),"S");
+    doc.setTextColor(27,33,48);doc.text(it.t,lx+16,ly);lx+=tw;
+  }
+  if($("pdfList").checked){
+    doc.addPage([pw,ph],"portrait");
+    doc.setFont("helvetica","bold");doc.setFontSize(14);doc.setTextColor(27,33,48);
+    doc.text(`${S.name||"Hex map"} - terrain and features`,40,50);
+    doc.setFont("courier","normal");doc.setFontSize(9);
+    let y=74;const lines=doc.splitTextToSize(listText(),pw-80);
+    for(const ln of lines){if(y>ph-40){doc.addPage([pw,ph],"portrait");y=50}doc.text(ln,40,y);y+=13}
+  }
+  await offer(fileBase()+".pdf",doc.output("blob"));
+});
+
+syncFieldInputs();buildChips();render();
+})();
+</script>
+
+</body>
+</html>
