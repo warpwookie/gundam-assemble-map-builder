@@ -110,6 +110,16 @@ kbd{font-family:var(--font-mono);font-size:11px;border:1px solid var(--line);bor
       <p class="note">Click or drag across hexes to paint. Keys <kbd>0</kbd>–<kbd>4</kbd> set elevation. Only ticked layers are painted or erased. Choosing a feature switches the brush to features only; choosing an elevation or ground type switches features off.</p>
     </section>
 
+    <section class="card" aria-labelledby="h-upg">
+      <h2 id="h-upg">Upgrades</h2>
+      <p class="stats" id="upgCount"></p>
+      <label class="f">How to assign<select id="upgMode">
+        <option value="spread">Spread out (types alternate across the board)</option>
+        <option value="random">Random</option></select></label>
+      <div class="row"><button id="upgDist" class="primary">Distribute evenly</button><button id="upgReset">Reset to Upgrade tokens</button></div>
+      <p class="note">Place Upgrade tokens with the brush, then distribute. Every Upgrade token and any Shield, Speed or Strength Upgrade already on the map is shared out equally. Distribute again to reshuffle.</p>
+    </section>
+
     <section class="card" aria-labelledby="h-view">
       <h2 id="h-view">Labels</h2>
       <label class="check"><input id="vLabels" type="checkbox"> Hex labels (AA, AB…)</label>
@@ -187,6 +197,7 @@ const FEATS=[
   {k:"obj3",chip:"Objective 3",name:"Objective 3",code:"O3",color:NEU},
   {k:"obj4",chip:"Objective 4",name:"Objective 4",code:"O4",color:NEU},
   {k:"energy",name:"Energy",code:"En",color:"#1f9d6a"},
+  {k:"upTok",chip:"Upgrade token",name:"Upgrade token (unassigned)",code:"U",color:"#8a6d1f"},
   {k:"upShield",chip:"Shield",name:"Shield Upgrade",code:"Sh",color:"#b8860b"},
   {k:"upSpeed",chip:"Speed",name:"Speed Upgrade",code:"Sp",color:"#b8860b"},
   {k:"upStr",chip:"Strength",name:"Strength Upgrade",code:"St",color:"#b8860b"},
@@ -245,7 +256,7 @@ function render(){
     s+=`</g>`;
   }
   svg.innerHTML=s;
-  renderMeta();
+  renderMeta();upgCount();
 }
 function labelY(d,fs){
   // label sits lower when a badge occupies the top of the hex; tag centres when labels are hidden
@@ -318,6 +329,37 @@ function snapshot(){undoStack.push(JSON.stringify(S));if(undoStack.length>60)und
 function undo(){if(!undoStack.length)return;S=JSON.parse(undoStack.pop());syncFieldInputs();persist();render();$("undo").disabled=!undoStack.length}
 $("undo").addEventListener("click",undo);
 document.querySelectorAll("[data-fill]").forEach(b=>b.addEventListener("click",()=>fillOpen(b.dataset.fill)));
+// ---------- upgrades ----------
+const UPG=["upShield","upSpeed","upStr"];
+function upgHexes(){return hexes().filter(hx=>{const f=cell(hx.lab).f;return f==="upTok"||UPG.includes(f)})}
+function upgCount(){
+  const c={upTok:0,upShield:0,upSpeed:0,upStr:0};for(const hx of upgHexes())c[cell(hx.lab).f]++;
+  const n=c.upTok+c.upShield+c.upSpeed+c.upStr;
+  $("upgCount").textContent=n?`${n} upgrade hexes · U ${c.upTok} · Sh ${c.upShield} · Sp ${c.upSpeed} · St ${c.upStr}`:"No Upgrade tokens placed yet.";
+  $("upgDist").disabled=n<3;$("upgReset").disabled=!(c.upShield+c.upSpeed+c.upStr);
+}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+function setF(lab,f){const d=cell(lab);const o={e:d.e,g:d.g};if(f)o.f=f;S.cells[lab]=o}
+$("upgDist").addEventListener("click",()=>{
+  const pool=upgHexes().map(h=>h.lab);const n=pool.length;if(n<3){say("Place at least 3 Upgrade tokens first.");return}
+  const each=Math.floor(n/3), extra=n-each*3;
+  // order: spread = board order with a random starting type; random = shuffled
+  let order=$("upgMode").value==="random"?shuffle(pool.slice()):pool.slice();
+  const types=shuffle(UPG.slice());
+  // leftovers stay as unassigned tokens, chosen at random
+  const left=new Set(shuffle(pool.slice()).slice(0,extra));
+  order=order.filter(l=>!left.has(l));
+  snapshot();
+  order.forEach((lab,i)=>setF(lab,types[i%3]));
+  left.forEach(lab=>setF(lab,"upTok"));
+  persist();render();
+  say(`Assigned ${each} Shield, ${each} Speed and ${each} Strength Upgrades.`+(extra?` ${extra} token${extra>1?"s":""} left unassigned (${n} isn't divisible by 3): add ${3-extra} more or remove ${extra} to even it out.`:""));
+});
+$("upgReset").addEventListener("click",()=>{
+  snapshot();let n=0;for(const hx of upgHexes()){if(cell(hx.lab).f!=="upTok"){setF(hx.lab,"upTok");n++}}
+  persist();render();say(`Turned ${n} upgrades back into Upgrade tokens.`);
+});
+
 function fillOpen(gk){ let n=0;
   const todo=hexes().filter(hx=>cell(hx.lab).g==="plain");
   if(!todo.length){say("Every hex already has a ground type.");return}

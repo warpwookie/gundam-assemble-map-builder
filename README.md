@@ -10,7 +10,8 @@ A browser tool for laying out hex maps for the Gundam Assemble tabletop game.
 - Paint three layers onto each hex:
   - **Elevation** (outer band): E0 to E4
   - **Ground type** (inner hex): Basic ground, Water, Debris field, Minovsky Particles, Impassable, Space
-  - **Map feature** (badge): Bases, Garrisons and Carrier starts for Player A and B, Objectives 1–4, Energy, Shield / Speed / Strength Upgrades, Scenario tokens
+  - **Map feature** (badge): Bases, Garrisons and Carrier starts for Player A and B, Objectives 1–4, Energy, Upgrade tokens, Shield / Speed / Strength Upgrades, Scenario tokens
+- Place generic Upgrade tokens, then share them out evenly as Shield, Speed and Strength Upgrades (spread out or random). Redistribute or reset at any time.
 - Paint, Erase and Copy tools, drag painting, undo, and one-click fills for open hexes.
 - Show or hide hex labels, elevation tags, badge letters and the legend.
 - Export a PDF (Letter, A4, Tabloid or A3, full color or ink saver), with an optional map list page.
